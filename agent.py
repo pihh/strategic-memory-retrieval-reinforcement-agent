@@ -268,13 +268,20 @@ class StrategicMemoryAgent:
                 aux_losses.append(aux_loss_total.item())
 
             # Memory usefullness (if enabled) =====
-            mem_loss = torch.tensor(0.0, device=self.device)
-            if self.memory_learn_retention and self.memory is not None and hasattr(self.memory, 'last_attn'):
+            if (
+                self.memory_learn_retention
+                and self.memory is not None
+                and hasattr(self.memory, 'last_attn')
+                and self.memory.last_attn is not None
+                and len(self.memory.usefulness_vec) == len(self.memory.last_attn)
+                and len(self.memory.usefulness_vec) > 0
+            ):
                 total_reward = sum([r.item() for r in rewards])
-                # Use last attention vector and outcome for usefulness loss
                 attn_tensor = torch.tensor(self.memory.last_attn, dtype=torch.float32, device=self.device)
                 mem_loss = self.memory.usefulness_loss(attn_tensor, total_reward)
-      
+            else:
+                mem_loss = torch.tensor(0.0, device=self.device)
+                
 
             loss = (
                 policy_loss 
@@ -330,7 +337,7 @@ class StrategicMemoryAgent:
                         value_loss=value_loss.item(),
                         explained_variance=explained_var.item(),
                         n_updates=episodes,
-                        progress=f"{100 * steps / total_timesteps:.2f}%"
+                        progress=f"{100 * steps / total_timesteps:.1f}%"
                     )}
                 ]
                 if len(aux_metrics_log.items()) > 0:
