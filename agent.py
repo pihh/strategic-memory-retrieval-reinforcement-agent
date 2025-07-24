@@ -6,12 +6,11 @@ import torch.nn as nn
 import torch.optim as optim
 import torch.nn.functional as F
 from torch.distributions import Categorical
-
+from tabulate import tabulate
 
 from core_modules import RewardNormalizer, StateCounter, RNDModule
 from core_calculations import compute_gae, compute_explained_variance
 from callbacks import print_sb3_style_log_box
-
 
 class StrategicMemoryAgent:
     """
@@ -66,7 +65,11 @@ class StrategicMemoryAgent:
         rnd_emb_dim=32, 
         rnd_lr=1e-3,
         memory_learn_retention=False,      
-        memory_retention_coef=0.01        
+        memory_retention_coef=0.01,
+        early_stop=True,
+        early_stop_n_samples=100,
+        early_stop_mean_threshold=0.95,
+        early_stop_std_threshold=0.05,
     ):
         self.env = env
         self.device = torch.device(device)
@@ -79,6 +82,10 @@ class StrategicMemoryAgent:
         self.memory_retention_coef = memory_retention_coef
         self.aux_modules = aux_modules if aux_modules is not None else []
         self.aux = len(self.aux_modules) > 0
+        self.early_stop= early_stop
+        self.early_stop_n_samples=early_stop_n_samples
+        self.early_stop_mean_threshold= early_stop_mean_threshold
+        self.early_stop_std_threshold= early_stop_std_threshold
         # Policy: must accept obs_dim, memory, aux_modules
         self.policy = policy_class(
             obs_dim=env.observation_space.shape[0], 
@@ -225,6 +232,8 @@ class StrategicMemoryAgent:
         if self.memory :
             episodic_buffer = self.memory.episodic_buffer if hasattr(self.memory,"episodic_buffer") else  self.memory
         return episodic_buffer
+
+        
         
     def learn(self, total_timesteps=2000, log_interval=100):
         steps = 0
@@ -232,6 +241,7 @@ class StrategicMemoryAgent:
         all_returns = []
         start_time = time.time()
         aux_losses = []
+        unlock_early_stopping = len(self.episode_rewards)+self.early_stop_n_samples
         while steps < total_timesteps:
             try:
                 #if hasattr(sys, 'last_traceback'):  # Quick hack: set by IPython on error/stop
@@ -322,7 +332,25 @@ class StrategicMemoryAgent:
                 self.episode_lengths.append(T)
                 episodes += 1
                 steps += T
-    
+
+                if self.early_stop and len(self.episode_rewards) >= unlock_early_stopping:
+                    mean_rew = np.mean(self.episode_rewards[-self.early_stop_n_samples:])
+                    std_rew = np.std(self.episode_rewards[-self.early_stop_n_samples:])
+                    if mean_rew >self.early_stop_mean_threshold and std_rew <= self.early_stop_std_threshold:
+                        mean_len = np.mean(self.episode_lengths[-log_interval:])
+                        elapsed = int(time.time() - start_time)
+                        ep_duration = elapsed/episodes
+                        table = [
+                                ["Train duration",f"{elapsed}s"],
+                                ["Avg episode duration",f"{ep_duration:.2f}s"],
+                                ["Rolling ep rew mean", f"{mean_rew:.2f}"],
+                                ["Rolling ep rew std",f"{std_rew:.2f}"],
+                                ["Rolling ep length",f"{mean_len:.2f}"],
+                                ["N updates", episodes]]
+                        
+                        print(tabulate(table ,tablefmt="rounded_outline" , headers=["Early Stop",""]))
+                        return
+                    
                 # LOGGING (SB3-STYLE) =====================
                 if episodes % log_interval == 0 and self.verbose == 1:
                     elapsed = int(time.time() - start_time)

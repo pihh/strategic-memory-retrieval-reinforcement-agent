@@ -21,7 +21,7 @@ class EarlyStoppingMonitor:
                 print("Early stopping triggered!")
                 break
     """
-    def __init__(self, target=0.95, min_logs=5):
+    def __init__(self, rew_mean_thresh=0.95, rew_std_thresh=0.05):
         self.target = target        # Reward threshold to trigger stopping
         self.min_logs = min_logs    # Number of recent results required
         self.history = []           # Stores recent rewards/scores
@@ -52,7 +52,20 @@ class EarlyStoppingMonitor:
             return False
         # All recent rewards must meet or exceed the target
         return all(r >= self.target for r in self.history)
+class EarlyStoppingCallback:
+    """
+    Stops training when a reward threshold and stability condition are met.
+    """
+    def __init__(self, rew_mean_thresh=0.95, rew_std_thresh=0.05):
+        self.rew_mean_thresh = rew_mean_thresh
+        self.rew_std_thresh = rew_std_thresh
+        self.should_stop = False
 
+    def check(self, ep_rew_mean, ep_rew_std):
+        if ep_rew_mean > self.rew_mean_thresh and ep_rew_std < self.rew_std_thresh:
+            self.should_stop = True
+            print(f"[EarlyStopping] Criteria met: ep_rew_mean={ep_rew_mean:.3f}, ep_rew_std={ep_rew_std:.3f}")
+        return self.should_stop
 
 def print_sb3_style_log_box(stats):
     """
