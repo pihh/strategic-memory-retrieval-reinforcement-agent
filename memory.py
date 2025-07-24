@@ -206,3 +206,4 @@ class StrategicMemoryTransformerPolicy(nn.Module):
         for aux in self.aux_modules:
             aux_preds[aux.name] = aux.head(final_feat)
         return logits, value.squeeze(-1), aux_preds
+
