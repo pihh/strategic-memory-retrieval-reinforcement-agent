@@ -1,6 +1,18 @@
 
-class MotifMemoryBank(nn.Module):
+import torch
+import torch.nn as nn
+import numpy as np
+from memory import BaseMemoryBuffer
 
+class MotifMemoryBank(BaseMemoryBuffer):
+    """
+    Motif memory: learnable bank of pattern embeddings, attention-retrieved.
+
+    Features:
+        - Stores K motif embeddings, trainable.
+        - Neural encoder to encode subtrajectories as motifs.
+        - Attention over motifs given current context trajectory.
+    """
     def __init__(self, obs_dim, action_dim, mem_dim=32, n_motifs=32, motif_len=4, device='cpu'):
         super().__init__()
         self.obs_dim = obs_dim
@@ -9,7 +21,7 @@ class MotifMemoryBank(nn.Module):
         self.n_motifs = n_motifs
         self.motif_len = motif_len
         self.device = device
-
+        self.last_attn = None
         # Learnable motif memory bank
         self.motif_embeds = nn.Parameter(torch.randn(n_motifs, mem_dim))
         # Neural encoder for extracting motifs from subtrajectories
@@ -20,7 +32,9 @@ class MotifMemoryBank(nn.Module):
         )
 
     def retrieve(self, context_traj):
-    
+        """
+        Attends over motif bank using the latest motif_len steps of the context trajectory.
+        """
         if len(context_traj) < self.motif_len:
             pad = [context_traj[0]] * (self.motif_len - len(context_traj))
             motif_traj = pad + context_traj
@@ -39,23 +53,47 @@ class MotifMemoryBank(nn.Module):
     def motif_parameters(self):
         return [self.motif_embeds]
 
+    def get_trainable_parameters(self):
+        return list(self.parameters()) + list(self.motif_parameters())
 
-class CombinedMemoryModule(nn.Module):
+    def get_last_attention(self):
+        return self.last_attn
 
+
+class CombinedMemoryModule(BaseMemoryBuffer):
     def __init__(self, episodic_buffer, motif_bank):
         super().__init__()
         self.episodic_buffer = episodic_buffer
         self.motif_bank = motif_bank
+        self.last_attn = None
+
 
     def retrieve(self, context_trajectory):
         epi_readout, epi_attn = self.episodic_buffer.retrieve(context_trajectory)
         motif_readout, motif_attn = self.motif_bank.retrieve(context_trajectory)
         combined = torch.cat([epi_readout, motif_readout], dim=-1)
-        self.last_attn = (epi_attn, motif_attn)  # For logging/usefulness loss
+        self.last_attn = (epi_attn, motif_attn)
         return combined, epi_attn, motif_attn
 
+    def add_entry(self, trajectory, outcome):
+        self.episodic_buffer.add_entry(trajectory, outcome)
+        # Motif bank may NOT need this, but later might optionally do motif mining here 
+        # For now, only episodic buffer gets new entries
+        # If you want motifs to be updated with experience, call self.motif_bank.add_entry(trajectory, outcome) if you define it
 
-class StrategicMemoryTransformerPolicyV4(nn.Module):
+    def get_trainable_parameters(self):
+        params = []
+        if hasattr(self, "episodic_buffer"):
+            params += self.episodic_buffer.get_trainable_parameters()
+        if hasattr(self, "motif_bank"):
+            params += self.motif_bank.get_trainable_parameters()
+        return params
+
+    def get_last_attention(self):
+        return self.last_attn  # tuple: (episodic, motif)
+
+
+class StrategicCombinedMemoryPolicy(nn.Module):
     def __init__(self, obs_dim, mem_dim=32, nhead=4, memory=None, aux_modules=None, **kwargs):
         super().__init__()
         self.mem_dim = mem_dim
@@ -97,23 +135,3 @@ class StrategicMemoryTransformerPolicyV4(nn.Module):
         for aux in self.aux_modules:
             aux_preds[aux.name] = aux.head(final_feat)
         return logits, value.squeeze(-1), aux_preds
-
-
-"""
-episodic_buffer = StrategicMemoryBuffer(obs_dim=..., action_dim=..., mem_dim=..., max_entries=..., device=device)
-motif_bank = MotifMemoryBank(obs_dim=..., action_dim=..., mem_dim=..., n_motifs=32, motif_len=4, device=device)
-combined_memory = CombinedMemoryModule(episodic_buffer, motif_bank)
-policy = StrategicMemoryTransformerPolicy(obs_dim=..., mem_dim=..., memory=combined_memory, aux_modules=...)
-agent = StrategicMemoryAgent(policy_class=..., env=..., memory=combined_memory, ...)
-
-
-
-self.optimizer = optim.Adam(
-    list(self.policy.parameters()) +
-    list(self.memory.episodic_buffer.usefulness_parameters()) +
-    list(self.memory.motif_bank.motif_parameters()),
-    lr=learning_rate
-) 
-
-
-"""

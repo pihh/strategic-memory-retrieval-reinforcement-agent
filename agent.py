@@ -1,3 +1,4 @@
+import sys
 import time
 import numpy as np
 import torch
@@ -64,8 +65,8 @@ class StrategicMemoryAgent:
         use_rnd=False, 
         rnd_emb_dim=32, 
         rnd_lr=1e-3,
-        memory_learn_retention=False,      # <----- NEW FLAG
-        memory_retention_coef=0.01         # <----- Weight for retention loss
+        memory_learn_retention=False,      
+        memory_retention_coef=0.01        
     ):
         self.env = env
         self.device = torch.device(device)
@@ -85,15 +86,13 @@ class StrategicMemoryAgent:
             aux_modules=self.aux_modules
         ).to(self.device)
 
-        # ---- PATCH: include usefulness parameters if requested ----
+        # PATCH: include modular learning parameters to the optimizer 
+
+        params = list(self.policy.parameters())
         if self.memory_learn_retention and hasattr(self.memory, "usefulness_parameters"):
-            self.optimizer = optim.Adam(
-                list(self.policy.parameters()) + list(self.memory.usefulness_parameters()), 
-                lr=learning_rate
-            )
-        else:
-            self.optimizer = optim.Adam(self.policy.parameters(), lr=learning_rate)
-        # ---- END PATCH ----
+            params += list(self.memory.usefulness_parameters())
+        params = list({id(p): p for p in params}.values())  # REMOVE DUPLICATES
+        self.optimizer = torch.optim.Adam(params, lr=learning_rate)
 
         self.training_steps = 0
         self.episode_rewards = []
@@ -186,9 +185,17 @@ class StrategicMemoryAgent:
         # Store full trajectory in memory module (episodic buffer)
         if self.memory is not None:
             outcome = sum([r.item() for r in rewards])
-            self.memory.add_entry(context_traj, outcome)
-        if self.memory is not None and hasattr(self.memory, 'last_attn'):
-            attn_weights = self.memory.last_attn
+            # Modular handling: always update episode buffer if available, else fallback
+            
+            if hasattr(self.memory, "episodic_buffer") and hasattr(self.memory.episodic_buffer, "add_entry"):
+                self.memory.episodic_buffer.add_entry(context_traj, outcome)
+            elif hasattr(self.memory, "add_entry"):
+                self.memory.add_entry(context_traj, outcome)
+            # Optionally: update motifs if needed (usually not online, but up to you)
+            # if hasattr(self.memory, "motif_bank") and hasattr(self.memory.motif_bank, "add_entry"):
+            #     self.memory.motif_bank.add_entry(context_traj, outcome)
+        if self.memory is not None and hasattr(self.memory, 'get_last_attention'):
+            attn_weights = self.memory.get_last_attention()
 
         # RND predictor update (only predictor trained)
         if self.use_rnd:
@@ -213,157 +220,177 @@ class StrategicMemoryAgent:
             "attn_weights": attn_weights
         }
 
+    def get_episodic_buffer(self):
+        episodic_buffer = None
+        if self.memory :
+            episodic_buffer = self.memory.episodic_buffer if hasattr(self.memory,"episodic_buffer") else  self.memory
+        return episodic_buffer
+        
     def learn(self, total_timesteps=2000, log_interval=100):
         steps = 0
         episodes = 0
         all_returns = []
         start_time = time.time()
         aux_losses = []
-  
         while steps < total_timesteps:
-            episode = self.run_episode()
-            if self.reward_norm:
-                self.reward_normalizer.update([r.item() for r in episode["rewards"]])
-                episode["rewards"] = [
-                    torch.tensor(rn, dtype=torch.float32, device=self.device)
-                    for rn in self.reward_normalizer.normalize([r.item() for r in episode["rewards"]])
-                ]
-
-            trajectory = episode["trajectory"]
-            actions = episode["actions"]
-            rewards = episode["rewards"]
-            log_probs = episode["log_probs"]
-            values = episode["values"]
-            entropies_ep = episode["entropies"]
-            aux_preds = episode["aux_preds"]
-            aux_targets = episode["aux_targets"]
-            T = len(rewards)
-            rewards_t = torch.stack(rewards)
-            values_t = torch.stack(values)
-            log_probs_t = torch.stack(log_probs)
-            actions_t = torch.stack(actions)
-            last_value = 0.0
-            advantages = compute_gae(rewards_t, values_t, gamma=self.gamma, lam=self.lam, last_value=last_value)
-            returns = advantages + values_t.detach()
-
-            policy_loss = -(log_probs_t * advantages.detach()).sum()
-            value_loss = F.mse_loss(values_t, returns)
-            entropy_mean = torch.stack(entropies_ep).mean()
-            explained_var = compute_explained_variance(values_t, returns)
-
-            # Auxiliary losses
-            aux_loss_total = torch.tensor(0.0, device=self.device)
-            aux_metrics_log = {}
-            if self.aux:
-                for aux in self.aux_modules:
-                    preds = torch.stack([ap[aux.name] for ap in aux_preds])
-                    targets = torch.tensor(aux_targets[aux.name], device=self.device)
-                    if preds.dim() != targets.dim():
-                        targets = targets.squeeze(-1)
-                    loss = aux.aux_loss(preds, targets)
-                    aux_loss_total += loss
-                    metrics = aux.aux_metrics(preds, targets)
-                    aux_metrics_log[aux.name] = metrics
-                aux_losses.append(aux_loss_total.item())
-
-            # Memory usefullness (if enabled) =====
-            if (
-                self.memory_learn_retention
-                and self.memory is not None
-                and hasattr(self.memory, 'last_attn')
-                and self.memory.last_attn is not None
-                and len(self.memory.usefulness_vec) == len(self.memory.last_attn)
-                and len(self.memory.usefulness_vec) > 0
-            ):
+            try:
+                #if hasattr(sys, 'last_traceback'):  # Quick hack: set by IPython on error/stop
+                #    print("Interrupted in Jupyter (sys.last_traceback). Exiting.")
+                #    break
+                episode = self.run_episode()
+                if self.reward_norm:
+                    self.reward_normalizer.update([r.item() for r in episode["rewards"]])
+                    episode["rewards"] = [
+                        torch.tensor(rn, dtype=torch.float32, device=self.device)
+                        for rn in self.reward_normalizer.normalize([r.item() for r in episode["rewards"]])
+                    ]
+    
+                trajectory = episode["trajectory"]
+                actions = episode["actions"]
+                rewards = episode["rewards"]
+                log_probs = episode["log_probs"]
+                values = episode["values"]
+                entropies_ep = episode["entropies"]
+                aux_preds = episode["aux_preds"]
+                aux_targets = episode["aux_targets"]
+                T = len(rewards)
+                rewards_t = torch.stack(rewards)
+                values_t = torch.stack(values)
+                log_probs_t = torch.stack(log_probs)
+                actions_t = torch.stack(actions)
+                last_value = 0.0
+                advantages = compute_gae(rewards_t, values_t, gamma=self.gamma, lam=self.lam, last_value=last_value)
+                returns = advantages + values_t.detach()
+    
+                policy_loss = -(log_probs_t * advantages.detach()).sum()
+                value_loss = F.mse_loss(values_t, returns)
+                entropy_mean = torch.stack(entropies_ep).mean()
+                explained_var = compute_explained_variance(values_t, returns)
+    
+                # Auxiliary losses
+                aux_loss_total = torch.tensor(0.0, device=self.device)
+                aux_metrics_log = {}
+                if self.aux:
+                    for aux in self.aux_modules:
+                        preds = torch.stack([ap[aux.name] for ap in aux_preds])
+                        targets = torch.tensor(aux_targets[aux.name], device=self.device)
+                        if preds.dim() != targets.dim():
+                            targets = targets.squeeze(-1)
+                        loss = aux.aux_loss(preds, targets)
+                        aux_loss_total += loss
+                        metrics = aux.aux_metrics(preds, targets)
+                        aux_metrics_log[aux.name] = metrics
+                    aux_losses.append(aux_loss_total.item())
+    
+                # Memory usefullness (if enabled) =====
+                episodic_buffer = self.get_episodic_buffer()
+                if (
+                    self.memory_learn_retention
+                    and self.memory is not None
+                    and hasattr(episodic_buffer, 'get_last_attention')
+                    and episodic_buffer.last_attn is not None
+                    and len(episodic_buffer.usefulness_vec) == len(episodic_buffer.last_attn)
+                    and len(episodic_buffer.usefulness_vec) > 0
+                ):
+                    total_reward = sum([r.item() for r in rewards])
+                    if hasattr(self.memory,'episodic_buffer'):
+                        
+                        attn_tensor = torch.tensor(self.memory.episodic_buffer.last_attn, dtype=torch.float32, device=self.device)
+                        mem_loss = self.memory.episodic_buffer.usefulness_loss(attn_tensor, total_reward)
+                    else:
+                      
+                        attn_tensor = torch.tensor(self.memory.last_attn, dtype=torch.float32, device=self.device)
+                        mem_loss = self.memory.usefulness_loss(attn_tensor, total_reward)
+                else:
+                    mem_loss = torch.tensor(0.0, device=self.device)
+                    
+    
+                loss = (
+                    policy_loss 
+                    + 0.5 * value_loss 
+                    + 0.1 * aux_loss_total 
+                    - self.ent_coef * entropy_mean
+                    + (self.memory_retention_coef * mem_loss if self.memory_learn_retention else 0.0)
+                )
+    
+                self.optimizer.zero_grad()
+                loss.backward()
+                self.optimizer.step()
+    
                 total_reward = sum([r.item() for r in rewards])
-                attn_tensor = torch.tensor(self.memory.last_attn, dtype=torch.float32, device=self.device)
-                mem_loss = self.memory.usefulness_loss(attn_tensor, total_reward)
-            else:
-                mem_loss = torch.tensor(0.0, device=self.device)
+                self.episode_rewards.append(total_reward)
+                self.episode_lengths.append(T)
+                episodes += 1
+                steps += T
+    
+                # LOGGING (SB3-STYLE) =====================
+                if episodes % log_interval == 0 and self.verbose == 1:
+                    elapsed = int(time.time() - start_time)
+                    mean_rew = np.mean(self.episode_rewards[-log_interval:])
+                    std_rew = np.std(self.episode_rewards[-log_interval:])
+                    mean_len = np.mean(self.episode_lengths[-log_interval:])
                 
-
-            loss = (
-                policy_loss 
-                + 0.5 * value_loss 
-                + 0.1 * aux_loss_total 
-                - self.ent_coef * entropy_mean
-                + (self.memory_retention_coef * mem_loss if self.memory_learn_retention else 0.0)
-            )
-
-            self.optimizer.zero_grad()
-            loss.backward()
-            self.optimizer.step()
-
-            total_reward = sum([r.item() for r in rewards])
-            self.episode_rewards.append(total_reward)
-            self.episode_lengths.append(T)
-            episodes += 1
-            steps += T
-
-            # LOGGING (SB3-STYLE) =====================
-            if episodes % log_interval == 0 and self.verbose == 1:
-                elapsed = int(time.time() - start_time)
-                mean_rew = np.mean(self.episode_rewards[-log_interval:])
-                std_rew = np.std(self.episode_rewards[-log_interval:])
-                mean_len = np.mean(self.episode_lengths[-log_interval:])
+                    fps = int(steps / (elapsed + 1e-8))
+                    adv_mean = advantages.mean().item()
+                    adv_std = advantages.std().item()
+                    mean_entropy = entropy_mean.item()
+                    mean_aux = np.mean(aux_losses[-log_interval:]) if aux_losses else 0.0
+                    stats = [{
+                        "header": "rollout",
+                        "stats": dict(
+                            ep_len_mean=mean_len,
+                            ep_rew_mean=mean_rew,
+                            ep_rew_std=std_rew,
+                            policy_entropy=mean_entropy,
+                            advantage_mean=adv_mean,
+                            advantage_std=adv_std,
+                            aux_loss_mean=mean_aux
+                        )}, {
+                        "header": "time",
+                        "stats": dict(
+                            fps=fps,
+                            episodes=episodes,
+                            time_elapsed=elapsed,
+                            total_timesteps=steps
+                        )}, {
+                        "header": "train",
+                        "stats": dict(
+                            loss=loss.item(),
+                            policy_loss=policy_loss.item(),
+                            value_loss=value_loss.item(),
+                            explained_variance=explained_var.item(),
+                            n_updates=episodes,
+                            progress=100 * steps / total_timesteps
+                        )}
+                    ]
+                    if len(aux_metrics_log.items()) > 0:
+                        aux_stats = {
+                            "header": "aux_train",
+                            "stats": {}
+                        }
+                        for aux_name, metrics in aux_metrics_log.items():
+                            for k, v in metrics.items():
+                                aux_stats["stats"][f"aux_{aux_name}_{k}"] = v
+                        stats.append(aux_stats)
+                    if self.use_rnd:
+                        mean_rnd_bonus = np.mean([self.rnd(torch.tensor(np.array(o), dtype=torch.float32, device=self.device).unsqueeze(0)).item() for o in trajectory])
+                        stats.append({
+                            "header": "rnd_net_dist",
+                            "stats": {"mean_rnd_bonus": mean_rnd_bonus}
+                        })
+                    if self.memory_learn_retention:
+                        stats.append({
+                            "header": "memory",
+                            "stats": {
+                                "usefulness_loss": mem_loss.item()}
+                        })
+                    
+                    print_sb3_style_log_box(stats)
+                    
+            except KeyboardInterrupt:
+                print("\n[Stopped by user] Gracefully exiting training loop...")
+                return
             
-                fps = int(steps / (elapsed + 1e-8))
-                adv_mean = advantages.mean().item()
-                adv_std = advantages.std().item()
-                mean_entropy = entropy_mean.item()
-                mean_aux = np.mean(aux_losses[-log_interval:]) if aux_losses else 0.0
-                stats = [{
-                    "header": "rollout",
-                    "stats": dict(
-                        ep_len_mean=mean_len,
-                        ep_rew_mean=mean_rew,
-                        ep_rew_std=std_rew,
-                        policy_entropy=mean_entropy,
-                        advantage_mean=adv_mean,
-                        advantage_std=adv_std,
-                        aux_loss_mean=mean_aux
-                    )}, {
-                    "header": "time",
-                    "stats": dict(
-                        fps=fps,
-                        episodes=episodes,
-                        time_elapsed=elapsed,
-                        total_timesteps=steps
-                    )}, {
-                    "header": "train",
-                    "stats": dict(
-                        loss=loss.item(),
-                        policy_loss=policy_loss.item(),
-                        value_loss=value_loss.item(),
-                        explained_variance=explained_var.item(),
-                        n_updates=episodes,
-                        progress=100 * steps / total_timesteps
-                    )}
-                ]
-                if len(aux_metrics_log.items()) > 0:
-                    aux_stats = {
-                        "header": "aux_train",
-                        "stats": {}
-                    }
-                    for aux_name, metrics in aux_metrics_log.items():
-                        for k, v in metrics.items():
-                            aux_stats["stats"][f"aux_{aux_name}_{k}"] = v
-                    stats.append(aux_stats)
-                if self.use_rnd:
-                    mean_rnd_bonus = np.mean([self.rnd(torch.tensor(np.array(o), dtype=torch.float32, device=self.device).unsqueeze(0)).item() for o in trajectory])
-                    stats.append({
-                        "header": "rnd_net_dist",
-                        "stats": {"mean_rnd_bonus": mean_rnd_bonus}
-                    })
-                if self.memory_learn_retention:
-                    stats.append({
-                        "header": "memory",
-                        "stats": {
-                            "usefulness_loss": mem_loss.item()}
-                    })
-                
-                print_sb3_style_log_box(stats)
-
         if self.verbose == 1:
             print(f"Training complete. Total episodes: {episodes}, total steps: {steps}")
 

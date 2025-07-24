@@ -3,7 +3,15 @@ import torch
 import torch.nn as nn
 import numpy as np
 
-class StrategicMemoryBuffer(nn.Module):
+class BaseMemoryBuffer(nn.Module):
+    def __init__(self, *args, **kwargs):
+        super().__init__()
+
+    def get_last_attention(self):
+        """Return the latest attention weights, if available."""
+        raise NotImplementedError("Memory module must implement get_last_attention()")
+
+class StrategicMemoryBuffer(BaseMemoryBuffer):
     """
     Episodic memory buffer for RL agents using neural trajectory encoding and
     attention-based retrieval, with learnable usefulness/retention scores.
@@ -29,6 +37,7 @@ class StrategicMemoryBuffer(nn.Module):
 
     def __init__(self, obs_dim, action_dim, mem_dim=32, max_entries=100, device='cpu'):
         super().__init__()
+      
         self.obs_dim = obs_dim
         self.action_dim = action_dim
         self.mem_dim = mem_dim
@@ -115,6 +124,12 @@ class StrategicMemoryBuffer(nn.Module):
     def usefulness_parameters(self):
         return [self.usefulness_vec]
 
+    def get_trainable_parameters(self):
+        # Everything that should be trained here
+        return list(self.parameters()) + list(self.usefulness_parameters())
+
+    def get_last_attention(self):
+        return getattr(self, "last_attn", None)
 
 class StrategicMemoryTransformerPolicy(nn.Module):
     """
