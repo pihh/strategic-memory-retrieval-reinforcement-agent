@@ -51,7 +51,7 @@ def build_memory_agent(env, config):
         her=config.get("her", False),
         verbose=config.get("verbose", 1),
         reward_norm=config.get("reward_norm", False),
-        # Add more custom args as needed
+    
     )
     return agent
 

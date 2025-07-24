@@ -83,7 +83,7 @@ class StrategicMemoryBuffer(nn.Module):
         if len(self.entries) == 0:
             self.last_attn = None
             return torch.zeros(self.mem_dim, device=self.device), None
-        traj_np = np.array([np.concatenate([obs, [action], [reward]]) for obs, action, reward in trajectory], dtype=np.float32)
+        traj_np = np.array([np.concatenate([obs, [action], [reward]]) for obs, action, reward in context_trajectory], dtype=np.float32)
         traj = torch.from_numpy(traj_np).to(self.device)
         traj_proj = self.embedding_proj(traj)
         context_embed = self.encoder(traj_proj.unsqueeze(0)).mean(dim=1).squeeze(0)

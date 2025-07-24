@@ -108,10 +108,10 @@ class StrategicMemoryAgent:
         if self.use_rnd:
             self.rnd = RNDModule(env.observation_space.shape[0], emb_dim=rnd_emb_dim).to(self.device)
             self.rnd_optimizer = torch.optim.Adam(self.rnd.predictor.parameters(), lr=rnd_lr)
-        self.trajectory = []
+        self.trajectory_buffer = []
 
     def reset_trajectory(self):
-        self.trajectory = []
+        self.trajectory_buffer = []
 
     def run_episode(self, her_target=None):
         obs, _ = self.env.reset()
@@ -219,7 +219,7 @@ class StrategicMemoryAgent:
         all_returns = []
         start_time = time.time()
         aux_losses = []
-
+  
         while steps < total_timesteps:
             episode = self.run_episode()
             if self.reward_norm:
@@ -238,7 +238,6 @@ class StrategicMemoryAgent:
             aux_preds = episode["aux_preds"]
             aux_targets = episode["aux_targets"]
             T = len(rewards)
-
             rewards_t = torch.stack(rewards)
             values_t = torch.stack(values)
             log_probs_t = torch.stack(log_probs)
@@ -307,6 +306,7 @@ class StrategicMemoryAgent:
                 mean_rew = np.mean(self.episode_rewards[-log_interval:])
                 std_rew = np.std(self.episode_rewards[-log_interval:])
                 mean_len = np.mean(self.episode_lengths[-log_interval:])
+            
                 fps = int(steps / (elapsed + 1e-8))
                 adv_mean = advantages.mean().item()
                 adv_std = advantages.std().item()
@@ -337,7 +337,7 @@ class StrategicMemoryAgent:
                         value_loss=value_loss.item(),
                         explained_variance=explained_var.item(),
                         n_updates=episodes,
-                        progress=f"{100 * steps / total_timesteps:.1f}%"
+                        progress=100 * steps / total_timesteps
                     )}
                 ]
                 if len(aux_metrics_log.items()) > 0:
@@ -451,3 +451,5 @@ class StrategicMemoryAgent:
         if verbose:
             print(f"Evaluation over {n_episodes} episodes: mean return {mean_return:.2f}, std {std_return:.2f}")
         return mean_return, std_return
+
+
