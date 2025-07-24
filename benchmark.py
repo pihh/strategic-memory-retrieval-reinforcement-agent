@@ -1,5 +1,5 @@
 import time
-import warnings
+
 import pandas as pd
 import numpy as np
 
@@ -13,8 +13,6 @@ from agent import StrategicMemoryAgent
 from environments import MemoryTaskEnv
 from memory import StrategicMemoryBuffer, StrategicMemoryTransformerPolicy
 
-
-warnings.filterwarnings('ignore')
 
 
 
