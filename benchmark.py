@@ -9,21 +9,21 @@ from stable_baselines3 import PPO
 from tabulate import tabulate
 from tqdm import tqdm
 
-from agent import StrategicMemoryAgent
+from agent import TraceRL
 from environments import MemoryTaskEnv
 from memory import StrategicMemoryBuffer, StrategicMemoryTransformerPolicy
 
-
+from constants import DEFAULT_DEVICE
 
 
 def build_memory_agent(env, config):
     """
-    Factory for creating an StrategicMemoryAgent with proper memory and aux modules.
+    Factory for creating an TraceRL with proper memory and aux modules.
     Args:
         env: Gymnasium environment.
         config: dict with agent, memory, policy, and aux setup.
     Returns:
-        Initialized StrategicMemoryAgent agent.
+        Initialized TraceRL agent.
     """
     mem_dim = config.get("mem_dim", 32)
     policy_class = config.get("policy_class", StrategicMemoryTransformerPolicy)
@@ -32,17 +32,17 @@ def build_memory_agent(env, config):
         action_dim=1,
         mem_dim=mem_dim,
         max_entries=config.get("max_entries", 16),
-        device=config.get("device", "cpu")
+        device=config.get("device", DEFAULT_DEVICE)
     )
     aux_modules = config.get("aux_modules", [])
-    agent = StrategicMemoryAgent(
+    agent = TraceRL(
         policy_class=policy_class,
         env=env,
         memory=memory,
         memory_learn_retention=config.get("memory_learn_retention", True),    
         memory_retention_coef=config.get("memory_retention_coef", 0.01),  
         aux_modules=aux_modules,
-        device=config.get("device", "cpu"),
+        device=config.get("device", DEFAULT_DEVICE),
         use_rnd=config.get("use_rnd", True),
         ent_coef=config.get("ent_coef", 0.1),
         learning_rate=config.get("learning_rate", 1e-3),
@@ -162,7 +162,7 @@ class AgentPerformanceBenchmark:
 
         # --- Add your custom memory agent here ---
         if self.memory_agent_config is not None:
-            agents.append(('StrategicMemoryAgent', lambda: build_memory_agent(
+            agents.append(('TraceRL', lambda: build_memory_agent(
                 self.env, self.memory_agent_config
             )))
 

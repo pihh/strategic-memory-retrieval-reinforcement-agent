@@ -1,6 +1,10 @@
-# Strategic Memory Retrieval: An Agent With Active, Learnable Memory
+# TraceRL
 
-**Strategic Memory Retrieval** is a reinforcement learning (RL) agent designed for **environments where optimal decisions require remembering and leveraging information from the distant past**—not just recent history. The agent maintains an **external, actively-managed episodic memory** where it stores compressed summaries of entire experiences (trajectories) and learns **which memories to retain and which to discard** as training progresses.
+#### Strategic Recall for Reinforcement Learning. An Agent With Active, Learnable Memory
+
+---
+
+**TraceRL** is a reinforcement learning (RL) agent designed for **environments where optimal decisions require remembering and leveraging information from the distant past**—not just recent history. The agent maintains an **external, actively-managed episodic memory** where it stores compressed summaries of entire experiences (trajectories) and learns **which memories to retain and which to discard** as training progresses.
 
 ### The Problem:
 
@@ -8,7 +12,7 @@ Classic RL agents—like DQN, LSTM PPO, or even transformers—struggle when rew
 
 ### The Solution:
 
-Strategic Memory Retrieval **actively learns**:
+TraceRL **actively learns**:
 
 - **What to store:** Which episodes or sequences are worth keeping in memory.
 - **What to forget:** Which are unhelpful and can be safely discarded.
@@ -20,17 +24,17 @@ Strategic Memory Retrieval **actively learns**:
 
 ## **Comparison Table**
 
-| Feature / Method              | LSTM PPO     | DNC/NTM        | Decision Transformer | GTrXL             | NEC / DND | Neural Map | **Strategic Memory Retrieval** |
-| ----------------------------- | ------------ | -------------- | -------------------- | ----------------- | --------- | ---------- | ------------------------------ |
-| Core Memory Type              | Hidden state | External R/W   | In-Context (GPT)     | Segment history   | kNN table | 2D spatial | Episodic buffer + retention    |
-| Memory Retention              | Fades        | Manual/learned | None                 | History window    | FIFO      | Manual     | _Learnable, optimized_         |
-| Retrieval                     | Implicit     | Soft/explicit  | Implicit             | History attention | kNN/soft  | Soft/read  | _Soft attention_               |
-| Retention Learning            | No           | Partial        | No                   | No                | No        | No         | **Yes**                        |
-| Interpretable Recall          | No           | Hard           | No                   | Some              | Some      | No         | **Yes (attention, use)**       |
-| Persistent Memory             | No           | Partial        | No                   | Partial           | Yes       | Yes        | **Yes**                        |
-| Sequence Length               | Short/medium | Short          | _Long_               | _Long_            | Medium    | Medium     | _Long_                         |
-| No Hints/Flags                | Yes          | Yes            | Yes                  | Yes               | Yes       | Yes        | **Yes**                        |
-| Outperforms on Delayed Reward | ✗            | ±              | ±                    | ±                 | ±         | ±          | **✓✓✓**                        |
+| Feature / Method              | LSTM PPO     | DNC/NTM        | Decision Transformer | GTrXL             | NEC / DND | Neural Map | **TraceRL**                 |
+| ----------------------------- | ------------ | -------------- | -------------------- | ----------------- | --------- | ---------- | --------------------------- |
+| Core Memory Type              | Hidden state | External R/W   | In-Context (GPT)     | Segment history   | kNN table | 2D spatial | Episodic buffer + retention |
+| Memory Retention              | Fades        | Manual/learned | None                 | History window    | FIFO      | Manual     | _Learnable, optimized_      |
+| Retrieval                     | Implicit     | Soft/explicit  | Implicit             | History attention | kNN/soft  | Soft/read  | _Soft attention_            |
+| Retention Learning            | No           | Partial        | No                   | No                | No        | No         | **Yes**                     |
+| Interpretable Recall          | No           | Hard           | No                   | Some              | Some      | No         | **Yes (attention, use)**    |
+| Persistent Memory             | No           | Partial        | No                   | Partial           | Yes       | Yes        | **Yes**                     |
+| Sequence Length               | Short/medium | Short          | _Long_               | _Long_            | Medium    | Medium     | _Long_                      |
+| No Hints/Flags                | Yes          | Yes            | Yes                  | Yes               | Yes       | Yes        | **Yes**                     |
+| Outperforms on Delayed Reward | ✗            | ±              | ±                    | ±                 | ±         | ±          | **✓✓✓**                     |
 
 ---
 

@@ -12,7 +12,9 @@ from core_modules import RewardNormalizer, StateCounter, RNDModule
 from core_calculations import compute_gae, compute_explained_variance
 from callbacks import print_sb3_style_log_box
 
-class StrategicMemoryAgent:
+from constants import DEFAULT_DEVICE
+
+class TraceRL:
     """
     Proximal Policy Optimization (PPO) agent with integrated external memory retrieval.
 
@@ -54,7 +56,7 @@ class StrategicMemoryAgent:
         gamma=0.99, 
         lam=0.95, 
         ent_coef=0.01,
-        device="cpu",
+        device=DEFAULT_DEVICE,
         her=False,
         reward_norm=False,
         intrinsic_expl=True,

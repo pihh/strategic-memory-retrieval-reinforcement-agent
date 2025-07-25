@@ -1,5 +1,22 @@
 import torch 
 
+from constants import DEFAULT_MEMORY_DIMENSION,DEFAULT_TRAJECTORY_LENGTH,DEFAULT_MEMORY_ENTRIES
+
+
+# ──────────────────────────────────────────────────────────────
+# Helper functions and defaults 
+# ──────────────────────────────────────────────────────────────
+
+def validate_memory_size(
+        mem_dim=DEFAULT_MEMORY_DIMENSION,
+        max_trajectory_len=DEFAULT_TRAJECTORY_LENGTH,
+        max_entries= DEFAULT_MEMORY_ENTRIES
+    ):
+    mem_dim = max(mem_dim,DEFAULT_MEMORY_DIMENSION)
+    max_trajectory_len= max(max_trajectory_len,mem_dim)
+    max_entries = max(max_entries,mem_dim)
+    return mem_dim,max_trajectory_len,max_entries
+
 # ──────────────────────────────────────────────────────────────
 # 4. Generalized Advantage Estimation (GAE) and Explained Variance
 # ──────────────────────────────────────────────────────────────
